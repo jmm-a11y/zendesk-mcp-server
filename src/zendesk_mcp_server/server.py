@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import pathlib
 from typing import Any, Dict
 
 from cachetools.func import ttl_cache
@@ -29,6 +30,25 @@ zendesk_client = ZendeskClient(
 )
 
 server = Server("Zendesk Server")
+
+_TECHS_PATH = pathlib.Path(__file__).parent / "techs.json"
+with _TECHS_PATH.open() as _f:
+    _TECHS: list[dict] = json.load(_f)["techs"]
+
+
+def _find_tech(query: str) -> list[dict]:
+    q = query.lower().strip()
+    results = []
+    for tech in _TECHS:
+        haystack = [
+            tech["name"].lower(),
+            tech["email"].lower(),
+            *[a.lower() for a in tech.get("aliases", [])],
+        ]
+        if any(q in h for h in haystack):
+            results.append(tech)
+    return results
+
 
 TICKET_ANALYSIS_TEMPLATE = """
 You are a helpful Zendesk support analyst. You've been asked to analyze ticket #{ticket_id}.
@@ -300,6 +320,20 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["job_id"]
             }
+        ),
+        types.Tool(
+            name="find_tech",
+            description="Look up a Techsourcing technician by name, alias, or email. Returns matching staff records including zendesk_user_id, which can be passed to update_ticket as assignee_id to assign a ticket. Use this whenever you need to resolve a person's name to a Zendesk user ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Name fragment, alias, or email to search for (e.g. 'john', 'jmm', 'akhan@techsourcing.com')"
+                    }
+                },
+                "required": ["query"]
+            }
         )
     ]
 
@@ -446,6 +480,18 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps(result, indent=2)
+            )]
+
+        elif name == "find_tech":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            query = arguments.get("query", "").strip()
+            if not query:
+                raise ValueError("query must not be empty")
+            results = _find_tech(query)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(results, indent=2)
             )]
 
         else:

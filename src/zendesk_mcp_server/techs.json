@@ -1,0 +1,28 @@
+{
+  "techs": [
+    {
+      "zendesk_user_id": 427071751794,
+      "name": "Aman Khan",
+      "email": "akhan@techsourcing.com",
+      "aliases": ["aman", "ak", "amankhan"]
+    },
+    {
+      "zendesk_user_id": 416586446734,
+      "name": "Techsourcing Development",
+      "email": "programming@techsourcing.com",
+      "aliases": ["development", "dev", "programming"]
+    },
+    {
+      "zendesk_user_id": 1522202524842,
+      "name": "Landon Jones",
+      "email": "landon@techsourcing.com",
+      "aliases": ["landon", "lj", "landonjones"]
+    },
+    {
+      "zendesk_user_id": 365714378054,
+      "name": "John Moore",
+      "email": "jmm@techsourcing.com",
+      "aliases": ["john", "jmm", "johnmoore", "johnm"]
+    }
+  ]
+}
