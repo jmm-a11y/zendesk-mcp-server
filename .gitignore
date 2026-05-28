@@ -15,3 +15,6 @@ wheels/
 .env
 .env.prod
 .env.dev
+
+# Local test/smoke scripts
+scripts/

@@ -334,6 +334,67 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to create ticket: {str(e)}")
 
+    def merge_tickets(
+        self,
+        target_ticket_id: int,
+        source_ticket_ids: List[int],
+        target_comment: str | None = None,
+        source_comment: str | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Merge one or more source tickets into a target ticket via Zendesk's native merge endpoint.
+        Source tickets are closed; the target ticket survives. Returns a job_status dict.
+        """
+        try:
+            url = f"{self.base_url}/tickets/{target_ticket_id}/merge.json"
+            payload: Dict[str, Any] = {"ids": source_ticket_ids}
+            if target_comment is not None:
+                payload["target_comment"] = target_comment
+            if source_comment is not None:
+                payload["source_comment"] = source_comment
+
+            response = _requests.post(
+                url,
+                headers={
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except _requests.HTTPError as e:
+            error_body = e.response.text if e.response is not None else "No response body"
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            raise Exception(
+                f"Failed to merge tickets into {target_ticket_id}: HTTP {status_code} - {error_body}"
+            )
+        except Exception as e:
+            raise Exception(f"Failed to merge tickets into {target_ticket_id}: {str(e)}")
+
+    def get_job_status(self, job_id: str) -> Dict[str, Any]:
+        """
+        Poll the status of an async Zendesk job (e.g. a ticket merge) by job ID.
+        """
+        try:
+            url = f"{self.base_url}/job_statuses/{job_id}.json"
+            response = _requests.get(
+                url,
+                headers={"Authorization": self.auth_header},
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except _requests.HTTPError as e:
+            error_body = e.response.text if e.response is not None else "No response body"
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            raise Exception(
+                f"Failed to get job status for {job_id}: HTTP {status_code} - {error_body}"
+            )
+        except Exception as e:
+            raise Exception(f"Failed to get job status for {job_id}: {str(e)}")
+
     def update_ticket(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
         """
         Update a Zendesk ticket with provided fields using Zenpy.

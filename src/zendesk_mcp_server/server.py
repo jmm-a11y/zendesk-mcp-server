@@ -258,6 +258,48 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id"]
             }
+        ),
+        types.Tool(
+            name="merge_tickets",
+            description="Merge one or more source tickets into a target ticket using Zendesk's native merge. Source tickets are closed; the target ticket survives. Returns a job_status — use get_job_status to confirm completion.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target_ticket_id": {
+                        "type": "integer",
+                        "description": "The ticket that survives the merge"
+                    },
+                    "source_ticket_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "One or more duplicate tickets to merge into the target (these get closed)",
+                        "minItems": 1
+                    },
+                    "target_comment": {
+                        "type": "string",
+                        "description": "Optional comment added to the target ticket after the merge"
+                    },
+                    "source_comment": {
+                        "type": "string",
+                        "description": "Optional comment added to each source ticket before it is closed"
+                    }
+                },
+                "required": ["target_ticket_id", "source_ticket_ids"]
+            }
+        ),
+        types.Tool(
+            name="get_job_status",
+            description="Poll the status of an async Zendesk background job (e.g. a ticket merge). Use the job_status.id returned by merge_tickets.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The job status ID returned by an async operation such as merge_tickets"
+                    }
+                },
+                "required": ["job_id"]
+            }
         )
     ]
 
@@ -365,6 +407,45 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
+            )]
+
+        elif name == "merge_tickets":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            target_ticket_id = arguments.get("target_ticket_id")
+            source_ticket_ids = arguments.get("source_ticket_ids")
+            if target_ticket_id is None:
+                raise ValueError("target_ticket_id is required")
+            if not source_ticket_ids:
+                raise ValueError("source_ticket_ids must contain at least one ticket ID")
+            if target_ticket_id in source_ticket_ids:
+                raise ValueError(
+                    f"target_ticket_id ({target_ticket_id}) must not appear in source_ticket_ids"
+                )
+            result = zendesk_client.merge_tickets(
+                target_ticket_id=int(target_ticket_id),
+                source_ticket_ids=[int(i) for i in source_ticket_ids],
+                target_comment=arguments.get("target_comment"),
+                source_comment=arguments.get("source_comment"),
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(
+                    {"message": "Merge job submitted successfully", "job_status": result},
+                    indent=2
+                )
+            )]
+
+        elif name == "get_job_status":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            job_id = arguments.get("job_id")
+            if not job_id:
+                raise ValueError("job_id is required")
+            result = zendesk_client.get_job_status(str(job_id))
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2)
             )]
 
         else:
