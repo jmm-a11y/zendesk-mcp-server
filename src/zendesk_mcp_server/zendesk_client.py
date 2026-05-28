@@ -395,6 +395,61 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to get job status for {job_id}: {str(e)}")
 
+    def search_tickets(self, query: str, page: int = 1, per_page: int = 100) -> Dict[str, Any]:
+        """
+        Search tickets using Zendesk's Search API.
+
+        The query uses Zendesk search syntax, e.g.:
+          type:ticket assignee:none status:open
+          type:ticket status:open created>2024-01-01
+        """
+        try:
+            per_page = min(per_page, 100)
+            params = {
+                'query': query,
+                'page': str(page),
+                'per_page': str(per_page),
+            }
+            query_string = urllib.parse.urlencode(params)
+            url = f"{self.base_url}/search.json?{query_string}"
+
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            results = []
+            for item in data.get('results', []):
+                if item.get('result_type') != 'ticket':
+                    continue
+                results.append({
+                    'id': item.get('id'),
+                    'subject': item.get('subject'),
+                    'status': item.get('status'),
+                    'priority': item.get('priority'),
+                    'description': item.get('description'),
+                    'created_at': item.get('created_at'),
+                    'updated_at': item.get('updated_at'),
+                    'requester_id': item.get('requester_id'),
+                    'assignee_id': item.get('assignee_id'),
+                })
+
+            return {
+                'tickets': results,
+                'count': data.get('count', len(results)),
+                'page': page,
+                'per_page': per_page,
+                'has_more': data.get('next_page') is not None,
+                'next_page': page + 1 if data.get('next_page') else None,
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to search tickets: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to search tickets: {str(e)}")
+
     def update_ticket(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
         """
         Update a Zendesk ticket with provided fields using Zenpy.

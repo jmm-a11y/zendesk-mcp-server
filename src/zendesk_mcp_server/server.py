@@ -322,6 +322,39 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="search_tickets",
+            description=(
+                "Search Zendesk tickets using Zendesk search syntax. "
+                "Use this instead of get_tickets whenever you need filtered results — "
+                "it queries server-side so nothing is missed regardless of volume. "
+                "Common patterns: 'type:ticket assignee:none status:open' for unassigned open tickets; "
+                "'type:ticket status:open' for all open tickets; "
+                "'type:ticket requester:user@example.com' by requester; "
+                "'type:ticket created>2024-01-01' by date. "
+                "Supports pagination via page/per_page if count exceeds per_page."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Zendesk search query string, e.g. 'type:ticket assignee:none status:open'"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "default": 1
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Results per page, max 100 (default 100)",
+                        "default": 100
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        types.Tool(
             name="find_tech",
             description="Look up a Techsourcing technician by name, alias, or email. Returns matching staff records including zendesk_user_id, which can be passed to update_ticket as assignee_id to assign a ticket. Use this whenever you need to resolve a person's name to a Zendesk user ID.",
             inputSchema={
@@ -480,6 +513,22 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps(result, indent=2)
+            )]
+
+        elif name == "search_tickets":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            query = arguments.get("query", "").strip()
+            if not query:
+                raise ValueError("query must not be empty")
+            results = zendesk_client.search_tickets(
+                query=query,
+                page=arguments.get("page", 1),
+                per_page=arguments.get("per_page", 100),
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(results, indent=2)
             )]
 
         elif name == "find_tech":
