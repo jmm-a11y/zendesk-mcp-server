@@ -110,19 +110,22 @@ ZENDESK_API_KEY=your_api_token
 
 Copy `.env.example` to `.env` and fill in the values. The `.env` file is gitignored.
 
-## Build and deploy
+## Claude Desktop config
 
-The server runs in Docker and is consumed by Claude Desktop via stdio.
+The server runs as a local `uv` process — same pattern as Foundation and Billing.
 
-```bash
-# Build
-docker build -t zendesk-mcp-server .
-
-# Run standalone (for testing)
-docker run --env-file .env zendesk-mcp-server
+```json
+"zendesk": {
+  "command": "C:\\Users\\JohnMMoore\\.local\\bin\\uv.exe",
+  "args": [
+    "run",
+    "--directory", "C:\\Users\\JohnMMoore\\dev\\zendesk-mcp-server",
+    "zendesk"
+  ]
+}
 ```
 
-After any code change: rebuild the image, then restart Claude Desktop so it reconnects to the updated container.
+After any code change, restart Claude Desktop to pick up the latest server code.
 
 ## Development
 
