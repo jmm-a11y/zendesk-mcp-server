@@ -224,7 +224,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="create_ticket_comment",
-            description="Create a new comment on an existing Zendesk ticket",
+            description="Create a new comment on an existing Zendesk ticket. IMPORTANT: Zendesk does not render markdown — always use HTML for any structured content. Use <p> for paragraphs, <b> for bold, <ul>/<ol>/<li> for lists. Plain prose with no formatting needs no tags.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -234,7 +234,7 @@ async def handle_list_tools() -> list[types.Tool]:
                     },
                     "comment": {
                         "type": "string",
-                        "description": "The comment text/content to add"
+                        "description": "The comment content. Use HTML for any formatting: <p> for paragraphs, <b> for bold, <ul>/<ol>/<li> for lists. Do NOT use markdown (**, *, #, etc.) — it will not render."
                     },
                     "public": {
                         "type": "boolean",

@@ -25,7 +25,7 @@ src/zendesk_mcp_server/
 | `create_ticket` | Create a new ticket |
 | `update_ticket` | Update ticket fields (status, priority, assignee_id, etc.) |
 | `get_ticket_comments` | All comments on a ticket, including attachment metadata |
-| `create_ticket_comment` | Post a public or internal comment |
+| `create_ticket_comment` | Post a public or internal comment — use HTML, not markdown |
 | `get_ticket_attachment` | Fetch an image attachment as base64 |
 | `merge_tickets` | Merge duplicate tickets (returns async job) |
 | `get_job_status` | Poll a merge job by job ID |
@@ -40,6 +40,16 @@ Use Zendesk search syntax in the `query` parameter:
 - `type:ticket created>2024-01-01` — by date
 
 `get_tickets` sorts by `updated_at desc` and requires manual pagination; stale tickets (untouched for weeks) can be missed. `search_tickets` queries server-side and returns complete results.
+
+## Comment formatting
+
+Zendesk does not render markdown in API-posted comments. Always use HTML for structured content:
+
+- `<p>` for paragraph breaks
+- `<b>` for bold / section headings
+- `<ul>` / `<ol>` / `<li>` for lists
+
+Plain prose with no formatting needs no tags. Never use markdown syntax (`**bold**`, `- list`, `# heading`, etc.) in comment bodies — it appears as raw characters in the agent UI and in client-facing replies.
 
 ## techs.json — staff roster
 
