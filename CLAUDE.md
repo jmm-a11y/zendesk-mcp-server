@@ -55,7 +55,7 @@ To set a custom status on a ticket:
 
 To attach a file (e.g. a Word doc built in Claude) to a ticket comment:
 
-1. Save or download the file to a known local path (e.g. `C:/Users/JohnMMoore/Downloads/report.docx`)
+1. Call Foundation's `list_downloads` to confirm the exact local path of the file
 2. Call `upload_file` with that path — returns a `token` and `expires_at`
 3. Immediately call `create_ticket_comment` with the `uploads` array set to `[token]`
 
