@@ -1,8 +1,10 @@
 from typing import Dict, Any, List
 import json
+import mimetypes
 import urllib.request
 import urllib.parse
 import base64
+from pathlib import Path
 import requests as _requests
 
 from zenpy import Zenpy
@@ -158,10 +160,13 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to fetch attachment from {content_url}: {str(e)}")
 
-    def post_comment(self, ticket_id: int, comment: str, public: bool = True) -> str:
+    def post_comment(self, ticket_id: int, comment: str, public: bool = True, uploads: List[str] | None = None) -> str:
         """
         Post a comment to an existing ticket.
+        Uses direct REST when uploads are provided (zenpy Comment doesn't surface that field).
         """
+        if uploads:
+            return self._post_comment_rest(ticket_id, comment, public, uploads)
         try:
             ticket = self.client.tickets(id=ticket_id)
             ticket.comment = Comment(
@@ -170,6 +175,37 @@ class ZendeskClient:
             )
             self.client.tickets.update(ticket)
             return comment
+        except Exception as e:
+            raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
+
+    def _post_comment_rest(self, ticket_id: int, comment: str, public: bool, uploads: List[str]) -> str:
+        """Direct REST PUT for comments that include file attachment tokens."""
+        try:
+            url = f"{self.base_url}/tickets/{ticket_id}.json"
+            payload = {
+                'ticket': {
+                    'comment': {
+                        'html_body': comment,
+                        'public': public,
+                        'uploads': uploads,
+                    }
+                }
+            }
+            response = _requests.put(
+                url,
+                headers={
+                    'Authorization': self.auth_header,
+                    'Content-Type': 'application/json',
+                },
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            return comment
+        except _requests.HTTPError as e:
+            error_body = e.response.text if e.response is not None else "No response body"
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            raise Exception(f"Failed to post comment on ticket {ticket_id}: HTTP {status_code} - {error_body}")
         except Exception as e:
             raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
 
@@ -450,6 +486,33 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to search tickets: {str(e)}")
 
+    def get_custom_statuses(self) -> List[Dict[str, Any]]:
+        """
+        Return all custom ticket statuses defined in the account.
+        """
+        try:
+            url = f"{self.base_url}/custom_statuses.json"
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+            return [
+                {
+                    'id': s.get('id'),
+                    'agent_label': s.get('agent_label'),
+                    'status_category': s.get('status_category'),
+                    'active': s.get('active'),
+                    'default': s.get('default'),
+                }
+                for s in data.get('custom_statuses', [])
+            ]
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get custom statuses: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get custom statuses: {str(e)}")
+
     def lookup_user(self, email: str) -> Dict[str, Any]:
         """
         Look up a Zendesk user by email address.
@@ -486,14 +549,60 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to look up user {email}: {str(e)}")
 
+    def upload_file(self, local_path: str, filename: str | None = None) -> Dict[str, Any]:
+        """
+        Upload a local file to Zendesk and return the attachment token.
+        The token can be passed in the uploads array when posting a comment.
+        """
+        source = Path(local_path).expanduser()
+        if not source.exists():
+            raise FileNotFoundError(f"File not found: {local_path!r}")
+        if not source.is_file():
+            raise ValueError(f"Path is not a file: {local_path!r}")
+
+        if filename is None:
+            filename = source.name
+
+        content = source.read_bytes()
+        content_type, _ = mimetypes.guess_type(filename)
+        if not content_type:
+            content_type = 'application/octet-stream'
+
+        params = urllib.parse.urlencode({'filename': filename})
+        url = f"{self.base_url}/uploads.json?{params}"
+
+        try:
+            response = _requests.post(
+                url,
+                headers={
+                    'Authorization': self.auth_header,
+                    'Content-Type': content_type,
+                },
+                data=content,
+                timeout=60,
+            )
+            response.raise_for_status()
+            upload = response.json().get('upload', {})
+            return {
+                'token': upload.get('token'),
+                'expires_at': upload.get('expires_at'),
+                'filename': filename,
+            }
+        except _requests.HTTPError as e:
+            error_body = e.response.text if e.response is not None else "No response body"
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            raise Exception(f"Failed to upload file: HTTP {status_code} - {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to upload file: {str(e)}")
+
     def update_ticket(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
         """
-        Update a Zendesk ticket with provided fields using Zenpy.
-
-        Supported fields include common ticket attributes like:
-        subject, status, priority, type, assignee_id, requester_id,
-        tags (list[str]), custom_fields (list[dict]), due_at, etc.
+        Update a Zendesk ticket. Uses direct REST when custom_status_id is present
+        (zenpy may not serialize that field); otherwise uses zenpy.
         """
+        if 'custom_status_id' in fields:
+            return self._update_ticket_rest(ticket_id, **fields)
+
         try:
             # Load the ticket, mutate fields directly, and update
             ticket = self.client.tickets(id=ticket_id)
@@ -522,5 +631,43 @@ class ZendeskClient:
                 'organization_id': refreshed.organization_id,
                 'tags': list(getattr(refreshed, 'tags', []) or []),
             }
+        except Exception as e:
+            raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")
+
+    def _update_ticket_rest(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
+        """Direct REST PUT for ticket updates that include fields zenpy may not serialize."""
+        try:
+            url = f"{self.base_url}/tickets/{ticket_id}.json"
+            payload = {'ticket': {k: v for k, v in fields.items() if v is not None}}
+            response = _requests.put(
+                url,
+                headers={
+                    'Authorization': self.auth_header,
+                    'Content-Type': 'application/json',
+                },
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            t = response.json().get('ticket', {})
+            return {
+                'id': t.get('id'),
+                'subject': t.get('subject'),
+                'description': t.get('description'),
+                'status': t.get('status'),
+                'priority': t.get('priority'),
+                'type': t.get('type'),
+                'created_at': t.get('created_at'),
+                'updated_at': t.get('updated_at'),
+                'requester_id': t.get('requester_id'),
+                'assignee_id': t.get('assignee_id'),
+                'organization_id': t.get('organization_id'),
+                'tags': list(t.get('tags', []) or []),
+                'custom_status_id': t.get('custom_status_id'),
+            }
+        except _requests.HTTPError as e:
+            error_body = e.response.text if e.response is not None else "No response body"
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            raise Exception(f"Failed to update ticket {ticket_id}: HTTP {status_code} - {error_body}")
         except Exception as e:
             raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")

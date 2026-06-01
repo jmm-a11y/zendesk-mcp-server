@@ -240,6 +240,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "boolean",
                         "description": "Whether the comment should be public",
                         "default": True
+                    },
+                    "uploads": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of upload tokens from upload_file to attach to this comment"
                     }
                 },
                 "required": ["ticket_id", "comment"]
@@ -274,7 +279,8 @@ async def handle_list_tools() -> list[types.Tool]:
                     "requester_id": {"type": "integer"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "custom_fields": {"type": "array", "items": {"type": "object"}},
-                    "due_at": {"type": "string", "description": "ISO8601 datetime"}
+                    "due_at": {"type": "string", "description": "ISO8601 datetime"},
+                    "custom_status_id": {"type": "integer", "description": "Custom status ID — use get_custom_statuses to find the right ID. Pass alongside the base status field (e.g. status=pending) to be explicit about the status category."},
                 },
                 "required": ["ticket_id"]
             }
@@ -381,6 +387,33 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["email"]
             }
+        ),
+        types.Tool(
+            name="get_custom_statuses",
+            description="List all custom ticket statuses defined in the Zendesk account. Returns id, agent_label, status_category, active, and default for each. Use this to find the custom_status_id to pass to update_ticket.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        types.Tool(
+            name="upload_file",
+            description="Upload a local file to Zendesk and return an attachment token. Pass the token in the uploads array when calling create_ticket_comment. Tokens expire after 60 minutes — upload and comment in the same step. Accepts any file type; Content-Type is inferred from the filename extension.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "local_path": {
+                        "type": "string",
+                        "description": "Absolute path to the file on disk (e.g. C:/Users/JohnMMoore/Downloads/report.docx). Supports ~ expansion."
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Optional display name for the attachment in Zendesk. Defaults to the file's basename."
+                    }
+                },
+                "required": ["local_path"]
+            }
         )
     ]
 
@@ -453,7 +486,8 @@ async def handle_call_tool(
             result = zendesk_client.post_comment(
                 ticket_id=arguments["ticket_id"],
                 comment=arguments["comment"],
-                public=public
+                public=public,
+                uploads=arguments.get("uploads"),
             )
             return [types.TextContent(
                 type="text",
@@ -564,6 +598,28 @@ async def handle_call_tool(
             if not email:
                 raise ValueError("email must not be empty")
             result = zendesk_client.lookup_user(email)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2)
+            )]
+
+        elif name == "get_custom_statuses":
+            result = zendesk_client.get_custom_statuses()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2)
+            )]
+
+        elif name == "upload_file":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            local_path = arguments.get("local_path", "").strip()
+            if not local_path:
+                raise ValueError("local_path must not be empty")
+            result = zendesk_client.upload_file(
+                local_path=local_path,
+                filename=arguments.get("filename"),
+            )
             return [types.TextContent(
                 type="text",
                 text=json.dumps(result, indent=2)

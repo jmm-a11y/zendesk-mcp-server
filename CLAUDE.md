@@ -24,7 +24,9 @@ src/zendesk_mcp_server/
 | `get_ticket` | Single ticket by ID |
 | `lookup_user` | Resolve any email address to a Zendesk user ID — use before `create_ticket` |
 | `create_ticket` | Create a new ticket — always call `lookup_user` first to set `requester_id` |
-| `update_ticket` | Update ticket fields (status, priority, assignee_id, etc.) |
+| `get_custom_statuses` | List all custom statuses with IDs — use to find the right `custom_status_id` |
+| `update_ticket` | Update ticket fields — supports `custom_status_id`; always pass base `status` too |
+| `upload_file` | Upload a local file and return an attachment token for use with `create_ticket_comment` |
 | `get_ticket_comments` | All comments on a ticket, including attachment metadata |
 | `create_ticket_comment` | Post a public or internal comment — use HTML, not markdown |
 | `get_ticket_attachment` | Fetch an image attachment as base64 |
@@ -41,6 +43,23 @@ Use Zendesk search syntax in the `query` parameter:
 - `type:ticket created>2024-01-01` — by date
 
 `get_tickets` sorts by `updated_at desc` and requires manual pagination; stale tickets (untouched for weeks) can be missed. `search_tickets` queries server-side and returns complete results.
+
+## Custom ticket statuses
+
+To set a custom status on a ticket:
+
+1. Call `get_custom_statuses` to find the right `id` (e.g. "Event Scheduled" → some integer)
+2. Call `update_ticket` with both `custom_status_id` and the base `status` field (the status category the custom status belongs to — e.g. `status=pending` for a pending-category custom status). Passing both is explicit and avoids ambiguity when similar custom statuses exist across categories (e.g. "Open (Monitoring)" vs "Pending (Monitoring)").
+
+## Attaching files to comments
+
+To attach a file (e.g. a Word doc built in Claude) to a ticket comment:
+
+1. Save or download the file to a known local path (e.g. `C:/Users/JohnMMoore/Downloads/report.docx`)
+2. Call `upload_file` with that path — returns a `token` and `expires_at`
+3. Immediately call `create_ticket_comment` with the `uploads` array set to `[token]`
+
+Tokens expire after 60 minutes — do not upload and then wait. Content-Type is inferred from the file extension automatically.
 
 ## Creating tickets — requester workflow
 
