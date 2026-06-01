@@ -162,7 +162,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="create_ticket",
-            description="Create a new Zendesk ticket",
+            description="Create a new Zendesk ticket. IMPORTANT: Always call lookup_user first to resolve the requester's email to a Zendesk user ID, then pass it as requester_id. After creation, verify the returned requester_id matches the expected user — if it defaulted to the API caller, use update_ticket to correct it.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -367,6 +367,20 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["query"]
             }
+        ),
+        types.Tool(
+            name="lookup_user",
+            description="Look up any Zendesk user (client, vendor, or staff) by email address. Use this before create_ticket to resolve a requester's email to a Zendesk user ID. Returns id, name, email, and role if found; returns found=false if the user does not exist in Zendesk.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "description": "The email address to look up"
+                    }
+                },
+                "required": ["email"]
+            }
         )
     ]
 
@@ -541,6 +555,18 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps(results, indent=2)
+            )]
+
+        elif name == "lookup_user":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            email = arguments.get("email", "").strip()
+            if not email:
+                raise ValueError("email must not be empty")
+            result = zendesk_client.lookup_user(email)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2)
             )]
 
         else:

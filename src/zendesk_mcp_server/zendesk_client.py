@@ -450,6 +450,42 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to search tickets: {str(e)}")
 
+    def lookup_user(self, email: str) -> Dict[str, Any]:
+        """
+        Look up a Zendesk user by email address.
+        Returns user details if found, or found=False if the user does not exist.
+        """
+        try:
+            params = {'query': f'email:{email}'}
+            query_string = urllib.parse.urlencode(params)
+            url = f"{self.base_url}/users/search.json?{query_string}"
+
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            users = data.get('users', [])
+            if not users:
+                return {'found': False, 'email': email}
+
+            user = users[0]
+            return {
+                'found': True,
+                'id': user.get('id'),
+                'name': user.get('name'),
+                'email': user.get('email'),
+                'role': user.get('role'),
+                'active': user.get('active'),
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to look up user {email}: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to look up user {email}: {str(e)}")
+
     def update_ticket(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
         """
         Update a Zendesk ticket with provided fields using Zenpy.

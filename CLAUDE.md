@@ -22,7 +22,8 @@ src/zendesk_mcp_server/
 | `search_tickets` | Search via Zendesk Search API — use this for filtered queries (unassigned, by status, by requester, etc.) |
 | `get_tickets` | Paginated list of all tickets — use only when you need a broad dump |
 | `get_ticket` | Single ticket by ID |
-| `create_ticket` | Create a new ticket |
+| `lookup_user` | Resolve any email address to a Zendesk user ID — use before `create_ticket` |
+| `create_ticket` | Create a new ticket — always call `lookup_user` first to set `requester_id` |
 | `update_ticket` | Update ticket fields (status, priority, assignee_id, etc.) |
 | `get_ticket_comments` | All comments on a ticket, including attachment metadata |
 | `create_ticket_comment` | Post a public or internal comment — use HTML, not markdown |
@@ -40,6 +41,16 @@ Use Zendesk search syntax in the `query` parameter:
 - `type:ticket created>2024-01-01` — by date
 
 `get_tickets` sorts by `updated_at desc` and requires manual pagination; stale tickets (untouched for weeks) can be missed. `search_tickets` queries server-side and returns complete results.
+
+## Creating tickets — requester workflow
+
+Always resolve the requester before creating a ticket:
+
+1. Call `lookup_user` with the requester's email → get their Zendesk user ID
+2. Pass that ID as `requester_id` to `create_ticket`
+3. After creation, confirm the returned `requester_id` matches the expected user — if Zendesk defaulted it to the API caller, call `update_ticket` to correct it
+
+If `lookup_user` returns `found: false`, stop and flag it — do not create the ticket with no requester, as it will be silently attributed to the API caller (JMM).
 
 ## Comment formatting
 
