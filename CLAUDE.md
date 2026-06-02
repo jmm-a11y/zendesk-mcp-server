@@ -120,7 +120,7 @@ The server runs as a local `uv` process — same pattern as Foundation and Billi
   "args": [
     "run",
     "--directory", "C:\\Users\\JohnMMoore\\dev\\zendesk-mcp-server",
-    "zendesk"
+    "python", "C:\\Users\\JohnMMoore\\dev\\zendesk-mcp-server\\src\\zendesk_mcp_server\\server.py"
   ]
 }
 ```
