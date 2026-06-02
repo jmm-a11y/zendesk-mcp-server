@@ -428,6 +428,31 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="find_merge_candidates",
+            description=(
+                "Find standing tickets that new unassigned tickets should be merged into. "
+                "Fetches all new unassigned tickets, then for each searches for related "
+                "tickets across all non-new/non-closed statuses using case-insensitive "
+                "subject-term matching. Designed for MSP alert noise: recurring alerts "
+                "(device-down, backup failures, CPU thresholds, deadlocks, etc.) "
+                "typically have a standing working ticket with a monitoring custom status. "
+                "Returns each new ticket paired with candidate merge targets sorted by "
+                "last updated. Call get_custom_statuses first to resolve custom_status_id "
+                "values in the results. Verify the match before merging."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lookback_days": {
+                        "type": "integer",
+                        "description": "How far back to search for standing tickets (default 90 days)",
+                        "default": 90
+                    }
+                },
+                "required": []
+            }
+        ),
+        types.Tool(
             name="upload_file",
             description="Upload a local file to Zendesk and return an attachment token. Pass the token in the uploads array when calling create_ticket_comment. Tokens expire after 60 minutes — upload and comment in the same step. Accepts any file type; Content-Type is inferred from the filename extension.",
             inputSchema={
@@ -639,6 +664,14 @@ async def handle_call_tool(
 
         elif name == "get_custom_statuses":
             result = zendesk_client.get_custom_statuses()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2)
+            )]
+
+        elif name == "find_merge_candidates":
+            lookback_days = arguments.get("lookback_days", 90) if arguments else 90
+            result = zendesk_client.find_merge_candidates(lookback_days=int(lookback_days))
             return [types.TextContent(
                 type="text",
                 text=json.dumps(result, indent=2)

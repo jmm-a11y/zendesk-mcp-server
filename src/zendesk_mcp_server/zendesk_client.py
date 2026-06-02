@@ -1,15 +1,30 @@
 from typing import Dict, Any, List
 import json
 import mimetypes
+import re
 import urllib.request
 import urllib.parse
 import base64
+from datetime import datetime, timedelta
 from pathlib import Path
 import requests as _requests
 
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Comment
 from zenpy.lib.api_objects import Ticket as ZenpyTicket
+
+
+def _slim_ticket(t: dict) -> dict:
+    """Return only the fields needed for merge triage."""
+    return {
+        'id': t.get('id'),
+        'subject': t.get('subject'),
+        'status': t.get('status'),
+        'custom_status_id': t.get('custom_status_id'),
+        'created_at': t.get('created_at'),
+        'updated_at': t.get('updated_at'),
+        'assignee_id': t.get('assignee_id'),
+    }
 
 
 class ZendeskClient:
@@ -531,6 +546,57 @@ class ZendeskClient:
             raise Exception(f"Failed to get custom statuses: HTTP {e.code} - {e.reason}. {error_body}")
         except Exception as e:
             raise Exception(f"Failed to get custom statuses: {str(e)}")
+
+    def find_merge_candidates(self, lookback_days: int = 90) -> List[Dict[str, Any]]:
+        """
+        Find standing tickets that new unassigned tickets should be merged into.
+
+        Fetches all new unassigned tickets, then for each searches for related
+        non-new/non-closed tickets using case-insensitive subject-term matching.
+        Designed for MSP alert noise where recurring alerts (device-down, backup
+        failures, CPU thresholds, etc.) have a standing working ticket.
+        """
+        lookback_date = (datetime.utcnow() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
+
+        new_result = self.search_tickets('type:ticket status:new assignee:none', per_page=50)
+        new_tickets = new_result.get('tickets', [])
+
+        results = []
+        for ticket in new_tickets:
+            subject = ticket.get('subject', '')
+
+            # Extract meaningful terms: words >= 3 chars that are not pure numbers.
+            # Splits on whitespace and common punctuation/operators so that subjects
+            # like "Azure CPU > 15 minutes" or "1 deadlock detected" yield clean tokens.
+            words = re.split(r'[\s\-_/\\|,;:!?()[\]{}<>=]+', subject)
+            terms = [w for w in words if len(w) >= 3 and not w.isdigit()][:5]
+
+            if not terms:
+                results.append({'new_ticket': _slim_ticket(ticket), 'candidates': []})
+                continue
+
+            query = (
+                f'type:ticket updated>{lookback_date} '
+                f'-status:new -status:solved -status:closed '
+                + ' '.join(terms)
+            )
+
+            try:
+                found = self.search_tickets(query, per_page=10)
+                candidates = [
+                    _slim_ticket(t)
+                    for t in found.get('tickets', [])
+                    if t['id'] != ticket['id']
+                ]
+            except Exception:
+                candidates = []
+
+            results.append({
+                'new_ticket': _slim_ticket(ticket),
+                'candidates': candidates,
+            })
+
+        return results
 
     def lookup_user(self, email: str) -> Dict[str, Any]:
         """

@@ -25,6 +25,7 @@ src/zendesk_mcp_server/
 | `lookup_user` | Resolve any email address to a Zendesk user ID — use before `create_ticket` |
 | `create_ticket` | Create a new ticket — always call `lookup_user` first to set `requester_id` |
 | `get_custom_statuses` | List all custom statuses with IDs — use to find the right `custom_status_id` |
+| `find_merge_candidates` | Find standing monitoring tickets for new unassigned alerts — returns each new ticket paired with candidates |
 | `update_ticket` | Update ticket fields — supports `custom_status_id`; always pass base `status` too |
 | `upload_file` | Upload a local file and return an attachment token for use with `create_ticket_comment` |
 | `get_ticket_comments` | All comments on a ticket, including attachment metadata |
