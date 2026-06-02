@@ -551,10 +551,15 @@ class ZendeskClient:
         """
         Find standing tickets that new unassigned tickets should be merged into.
 
-        Fetches all new unassigned tickets, then for each searches for related
-        non-new/non-closed tickets using case-insensitive subject-term matching.
-        Designed for MSP alert noise where recurring alerts (device-down, backup
-        failures, CPU thresholds, etc.) have a standing working ticket.
+        Fetches all new unassigned tickets, then for each:
+          1. Extracts all meaningful subject terms (case-insensitive, words >= 3 chars)
+          2. Searches standing tickets using those terms (Zendesk OR logic casts a wide net)
+          3. Post-filters candidates by word-level overlap score to remove false positives
+             where only a generic word like "Azure" matched
+
+        Candidates are returned sorted by overlap score descending so the best match
+        is first. match_score is the fraction of the new ticket's terms found in the
+        candidate subject; match_terms is the raw count.
         """
         lookback_date = (datetime.utcnow() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
 
@@ -565,29 +570,46 @@ class ZendeskClient:
         for ticket in new_tickets:
             subject = ticket.get('subject', '')
 
-            # Extract meaningful terms: words >= 3 chars that are not pure numbers.
-            # Splits on whitespace and common punctuation/operators so that subjects
-            # like "Azure CPU > 15 minutes" or "1 deadlock detected" yield clean tokens.
+            # Extract ALL meaningful terms from the full subject for scoring.
+            # Use up to 8 for the search query; use all for overlap scoring.
             words = re.split(r'[\s\-_/\\|,;:!?()[\]{}<>=]+', subject)
-            terms = [w for w in words if len(w) >= 3 and not w.isdigit()][:5]
+            all_terms = [w.lower() for w in words if len(w) >= 3 and not w.isdigit()]
+            search_terms = all_terms[:8]
 
-            if not terms:
+            if not search_terms:
                 results.append({'new_ticket': _slim_ticket(ticket), 'candidates': []})
                 continue
 
             query = (
                 f'type:ticket updated>{lookback_date} '
                 f'-status:new -status:solved -status:closed '
-                + ' '.join(terms)
+                + ' '.join(search_terms)
             )
 
             try:
-                found = self.search_tickets(query, per_page=10)
-                candidates = [
-                    _slim_ticket(t)
-                    for t in found.get('tickets', [])
-                    if t['id'] != ticket['id']
-                ]
+                found = self.search_tickets(query, per_page=20)
+
+                scored = []
+                for t in found.get('tickets', []):
+                    if t['id'] == ticket['id']:
+                        continue
+                    # Word-level overlap: split candidate subject and count exact word matches
+                    cand_words = set(re.split(
+                        r'[\s\-_/\\|,;:!?()[\]{}<>=]+',
+                        (t.get('subject') or '').lower()
+                    ))
+                    matches = sum(1 for term in all_terms if term in cand_words)
+                    overlap = matches / len(all_terms) if all_terms else 0.0
+                    # Keep candidates with at least 2 matching words OR >= 25% overlap
+                    if matches >= 2 or overlap >= 0.25:
+                        slim = _slim_ticket(t)
+                        slim['match_score'] = round(overlap, 2)
+                        slim['match_terms'] = matches
+                        scored.append(slim)
+
+                scored.sort(key=lambda c: (-c['match_score'], c.get('updated_at', '') or ''))
+                candidates = scored
+
             except Exception:
                 candidates = []
 
