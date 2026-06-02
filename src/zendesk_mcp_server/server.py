@@ -148,14 +148,7 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="get_ticket",
-            description=(
-                "Retrieve a Zendesk ticket by its ID. "
-                "Response includes custom_status_id — this is the operative status for triage decisions "
-                "(e.g. 'Event Scheduled'), not the base status field which is only the broad category. "
-                "Use include_comments=true whenever evaluating a ticket as a merge target — the thread "
-                "may document a root cause or scheduled change that reframes apparent duplicates as expected fallout. "
-                "Call get_custom_statuses once at the start of a triage session to build the id-to-label mapping."
-            ),
+            description="Retrieve a ticket by ID. Includes custom_status_id (the operative status — map IDs with get_custom_statuses). Use include_comments=true to embed recent comments for triage context.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -179,7 +172,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="create_ticket",
-            description="Create a new Zendesk ticket. IMPORTANT: Always call lookup_user first to resolve the requester's email to a Zendesk user ID, then pass it as requester_id. After creation, verify the returned requester_id matches the expected user — if it defaulted to the API caller, use update_ticket to correct it.",
+            description="Create a new ticket. Always call lookup_user first and pass the result as requester_id — Zendesk silently defaults to the API caller otherwise. Verify requester_id in the response.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -227,7 +220,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_ticket_comments",
-            description="Retrieve all comments for a Zendesk ticket by its ID",
+            description="All comments on a ticket. Returns plain-text body (no html_body). Use get_ticket_attachment for attachment content.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -241,7 +234,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="create_ticket_comment",
-            description="Create a new comment on an existing Zendesk ticket. IMPORTANT: Zendesk does not render markdown — always use HTML for any structured content. Use <p> for paragraphs, <b> for bold, <ul>/<ol>/<li> for lists. Plain prose with no formatting needs no tags.",
+            description="Post a comment on a ticket. Use HTML not markdown — Zendesk does not render markdown. Use <p>, <b>, <ul>/<ol>/<li>. Pass upload tokens in the uploads array to attach files.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -283,7 +276,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="update_ticket",
-            description="Update fields on an existing Zendesk ticket (e.g., status, priority, assignee_id)",
+            description="Update ticket fields. When setting custom_status_id, also pass the base status field — use get_custom_statuses to find the right ID.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -304,7 +297,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="merge_tickets",
-            description="Merge one or more source tickets into a target ticket using Zendesk's native merge. Source tickets are closed; the target ticket survives. Returns a job_status — use get_job_status to confirm completion.",
+            description="Merge source tickets into a target. Sources are closed; target survives. Returns a job ID — poll with get_job_status.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -347,27 +340,14 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="search_tickets",
             description=(
-                "Search Zendesk tickets using Zendesk search syntax. "
-                "Use this instead of get_tickets whenever you need filtered results — "
-                "it queries server-side so nothing is missed regardless of volume. "
-                "Common patterns: 'type:ticket assignee:none status:new' for unassigned new tickets; "
-                "'type:ticket status:open' for all open tickets; "
-                "'type:ticket requester:user@example.com' by requester; "
-                "'type:ticket updated>2024-01-01' by recent activity. "
-                "Supports pagination via page/per_page if count exceeds per_page. "
-                "Results include custom_status_id alongside the base status field. "
-                "TRIAGE RULES — apply these for recurring-alert and merge workflows: "
-                "(1) Use updated> not created> when the user says 'yesterday', 'this week', or 'recent' — "
-                "those almost always mean last activity, not ticket creation date. "
-                "(2) For recurring device/network alerts, the active working ticket is frequently older and "
-                "in open, pending, or a custom status — never limit the search to status:new before first "
-                "checking whether a standing ticket already exists across all statuses. "
-                "(3) Before merging into any target ticket, call get_ticket with include_comments=true — "
-                "the thread may document a root cause or scheduled change that reframes apparent duplicates "
-                "as expected fallout. "
-                "(4) custom_status_id carries the operative context (e.g. 'Event Scheduled'), not the base "
-                "status field which is only the broad category (e.g. 'pending'). Call get_custom_statuses "
-                "once per triage session to build the id-to-label mapping before drawing conclusions."
+                "Search Zendesk tickets using Zendesk search syntax. Prefer over get_tickets for all filtered queries. "
+                "Results include custom_status_id alongside base status. "
+                "Common: 'type:ticket status:new assignee:none', 'type:ticket status:open', "
+                "'type:ticket requester:user@example.com', 'type:ticket updated>2024-01-01'. "
+                "Triage rules: (1) use updated> not created> for recent-activity queries; "
+                "(2) the merge target for a recurring alert is usually an older open/pending ticket — search all statuses; "
+                "(3) call get_ticket with include_comments=true before merging; "
+                "(4) custom_status_id is the operative status, not the base status field."
             ),
             inputSchema={
                 "type": "object",
@@ -392,7 +372,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="find_tech",
-            description="Look up a Techsourcing technician by name, alias, or email. Returns matching staff records including zendesk_user_id, which can be passed to update_ticket as assignee_id to assign a ticket. Use this whenever you need to resolve a person's name to a Zendesk user ID.",
+            description="Look up a Techsourcing staff member by name, alias, or email. Returns zendesk_user_id for use as assignee_id.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -406,7 +386,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="lookup_user",
-            description="Look up any Zendesk user (client, vendor, or staff) by email address. Use this before create_ticket to resolve a requester's email to a Zendesk user ID. Returns id, name, email, and role if found; returns found=false if the user does not exist in Zendesk.",
+            description="Look up any Zendesk user by email. Use before create_ticket to get requester_id. Returns id, name, email, role if found; found=false if not.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -420,7 +400,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_custom_statuses",
-            description="List all custom ticket statuses defined in the Zendesk account. Returns id, agent_label, status_category, active, and default for each. Use this to find the custom_status_id to pass to update_ticket.",
+            description="List all custom ticket statuses (id, agent_label, status_category). Call once per session to build the ID-to-label mapping. Results are cached for 1 hour.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -429,17 +409,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="find_merge_candidates",
-            description=(
-                "Find standing tickets that new unassigned tickets should be merged into. "
-                "Fetches all new unassigned tickets, then for each searches for related "
-                "tickets across all non-new/non-closed statuses using case-insensitive "
-                "subject-term matching. Designed for MSP alert noise: recurring alerts "
-                "(device-down, backup failures, CPU thresholds, deadlocks, etc.) "
-                "typically have a standing working ticket with a monitoring custom status. "
-                "Returns each new ticket paired with candidate merge targets sorted by "
-                "last updated. Call get_custom_statuses first to resolve custom_status_id "
-                "values in the results. Verify the match before merging."
-            ),
+            description="Find standing tickets that new unassigned alerts should be merged into. Runs 2-3 API calls total (batched). Returns each new ticket with scored candidates — match_score is term-overlap fraction. Call get_custom_statuses first to resolve custom_status_id values. Verify before merging.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -454,7 +424,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="upload_file",
-            description="Upload a local file to Zendesk and return an attachment token. Pass the token in the uploads array when calling create_ticket_comment. Tokens expire after 60 minutes — upload and comment in the same step. Accepts any file type; Content-Type is inferred from the filename extension.",
+            description="Upload a local file and return an attachment token. Pass token in create_ticket_comment uploads array. Tokens expire in 60 min — upload and comment immediately. Use Foundation's list_downloads to confirm the path.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -656,14 +626,14 @@ async def handle_call_tool(
             email = arguments.get("email", "").strip()
             if not email:
                 raise ValueError("email must not be empty")
-            result = zendesk_client.lookup_user(email)
+            result = lookup_user_cached(email)
             return [types.TextContent(
                 type="text",
                 text=json.dumps(result, indent=2)
             )]
 
         elif name == "get_custom_statuses":
-            result = zendesk_client.get_custom_statuses()
+            result = get_custom_statuses_cached()
             return [types.TextContent(
                 type="text",
                 text=json.dumps(result, indent=2)
@@ -718,6 +688,16 @@ async def handle_list_resources() -> list[types.Resource]:
 @ttl_cache(ttl=3600)
 def get_cached_kb():
     return zendesk_client.get_all_articles()
+
+
+@ttl_cache(ttl=3600)
+def get_custom_statuses_cached():
+    return zendesk_client.get_custom_statuses()
+
+
+@ttl_cache(ttl=3600)
+def lookup_user_cached(email: str):
+    return zendesk_client.lookup_user(email)
 
 
 @server.read_resource()

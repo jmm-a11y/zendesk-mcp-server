@@ -108,7 +108,6 @@ class ZendeskClient:
                     'id': comment.id,
                     'author_id': comment.author_id,
                     'body': comment.body,
-                    'html_body': comment.html_body,
                     'public': comment.public,
                     'created_at': str(comment.created_at),
                     'attachments': attachments,
@@ -283,12 +282,14 @@ class ZendeskClient:
             # Process tickets to return only essential fields
             ticket_list = []
             for ticket in tickets_data:
+                desc = ticket.get('description') or ''
                 ticket_list.append({
                     'id': ticket.get('id'),
                     'subject': ticket.get('subject'),
                     'status': ticket.get('status'),
+                    'custom_status_id': ticket.get('custom_status_id'),
                     'priority': ticket.get('priority'),
-                    'description': ticket.get('description'),
+                    'description': desc[:200] + ('...' if len(desc) > 200 else ''),
                     'created_at': ticket.get('created_at'),
                     'updated_at': ticket.get('updated_at'),
                     'requester_id': ticket.get('requester_id'),
@@ -377,28 +378,21 @@ class ZendeskClient:
                 custom_fields=custom_fields,
             )
             created_audit = self.client.tickets.create(ticket)
-            # Fetch created ticket id from audit
-            created_ticket_id = getattr(getattr(created_audit, 'ticket', None), 'id', None)
-            if created_ticket_id is None:
-                # Fallback: try to read id from audit events
-                created_ticket_id = getattr(created_audit, 'id', None)
-
-            # Fetch full ticket to return consistent data
-            created = self.client.tickets(id=created_ticket_id) if created_ticket_id else None
-
+            t = getattr(created_audit, 'ticket', None)
             return {
-                'id': getattr(created, 'id', created_ticket_id),
-                'subject': getattr(created, 'subject', subject),
-                'description': getattr(created, 'description', description),
-                'status': getattr(created, 'status', 'new'),
-                'priority': getattr(created, 'priority', priority),
-                'type': getattr(created, 'type', type),
-                'created_at': str(getattr(created, 'created_at', '')),
-                'updated_at': str(getattr(created, 'updated_at', '')),
-                'requester_id': getattr(created, 'requester_id', requester_id),
-                'assignee_id': getattr(created, 'assignee_id', assignee_id),
-                'organization_id': getattr(created, 'organization_id', None),
-                'tags': list(getattr(created, 'tags', tags or []) or []),
+                'id': getattr(t, 'id', None),
+                'subject': getattr(t, 'subject', subject),
+                'description': getattr(t, 'description', description),
+                'status': getattr(t, 'status', 'new'),
+                'custom_status_id': getattr(t, 'custom_status_id', None),
+                'priority': getattr(t, 'priority', priority),
+                'type': getattr(t, 'type', type),
+                'created_at': str(getattr(t, 'created_at', '')),
+                'updated_at': str(getattr(t, 'updated_at', '')),
+                'requester_id': getattr(t, 'requester_id', requester_id),
+                'assignee_id': getattr(t, 'assignee_id', assignee_id),
+                'organization_id': getattr(t, 'organization_id', None),
+                'tags': list(getattr(t, 'tags', tags or []) or []),
             }
         except Exception as e:
             raise Exception(f"Failed to create ticket: {str(e)}")
@@ -493,13 +487,14 @@ class ZendeskClient:
             for item in data.get('results', []):
                 if item.get('result_type') != 'ticket':
                     continue
+                desc = item.get('description') or ''
                 results.append({
                     'id': item.get('id'),
                     'subject': item.get('subject'),
                     'status': item.get('status'),
                     'custom_status_id': item.get('custom_status_id'),
                     'priority': item.get('priority'),
-                    'description': item.get('description'),
+                    'description': desc[:200] + ('...' if len(desc) > 200 else ''),
                     'created_at': item.get('created_at'),
                     'updated_at': item.get('updated_at'),
                     'requester_id': item.get('requester_id'),
@@ -551,71 +546,61 @@ class ZendeskClient:
         """
         Find standing tickets that new unassigned tickets should be merged into.
 
-        Fetches all new unassigned tickets, then for each:
-          1. Extracts all meaningful subject terms (case-insensitive, words >= 3 chars)
-          2. Searches standing tickets using those terms (Zendesk OR logic casts a wide net)
-          3. Post-filters candidates by word-level overlap score to remove false positives
-             where only a generic word like "Azure" matched
-
-        Candidates are returned sorted by overlap score descending so the best match
-        is first. match_score is the fraction of the new ticket's terms found in the
-        candidate subject; match_terms is the raw count.
+        Runs 2-3 API calls total: one for new tickets, one batch fetch of all
+        standing tickets (paginated up to 300), then matching is done in-process.
+        Previously made N+1 serial API calls.
         """
         lookback_date = (datetime.utcnow() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
 
-        new_result = self.search_tickets('type:ticket status:new assignee:none', per_page=50)
+        new_result = self.search_tickets('type:ticket status:new assignee:none', per_page=100)
         new_tickets = new_result.get('tickets', [])
+        if not new_tickets:
+            return []
 
+        new_ids = {t['id'] for t in new_tickets}
+
+        # Single broad fetch of all standing tickets — paginate up to 300
+        standing: List[Dict] = []
+        for page in range(1, 4):
+            result = self.search_tickets(
+                f'type:ticket updated>{lookback_date} -status:new -status:solved -status:closed',
+                page=page, per_page=100,
+            )
+            standing.extend(result.get('tickets', []))
+            if not result.get('has_more'):
+                break
+
+        # Match every new ticket against the standing set locally
         results = []
         for ticket in new_tickets:
             subject = ticket.get('subject', '')
-
-            # Extract ALL meaningful terms from the full subject for scoring.
-            # Use up to 8 for the search query; use all for overlap scoring.
             words = re.split(r'[\s\-_/\\|,;:!?()[\]{}<>=]+', subject)
             all_terms = [w.lower() for w in words if len(w) >= 3 and not w.isdigit()]
-            search_terms = all_terms[:8]
 
-            if not search_terms:
+            if not all_terms:
                 results.append({'new_ticket': _slim_ticket(ticket), 'candidates': []})
                 continue
 
-            query = (
-                f'type:ticket updated>{lookback_date} '
-                f'-status:new -status:solved -status:closed '
-                + ' '.join(search_terms)
-            )
+            scored = []
+            for t in standing:
+                if t['id'] in new_ids:
+                    continue
+                cand_words = set(re.split(
+                    r'[\s\-_/\\|,;:!?()[\]{}<>=]+',
+                    (t.get('subject') or '').lower()
+                ))
+                matches = sum(1 for term in all_terms if term in cand_words)
+                overlap = matches / len(all_terms) if all_terms else 0.0
+                if matches >= 2 or overlap >= 0.25:
+                    slim = _slim_ticket(t)
+                    slim['match_score'] = round(overlap, 2)
+                    slim['match_terms'] = matches
+                    scored.append(slim)
 
-            try:
-                found = self.search_tickets(query, per_page=20)
-
-                scored = []
-                for t in found.get('tickets', []):
-                    if t['id'] == ticket['id']:
-                        continue
-                    # Word-level overlap: split candidate subject and count exact word matches
-                    cand_words = set(re.split(
-                        r'[\s\-_/\\|,;:!?()[\]{}<>=]+',
-                        (t.get('subject') or '').lower()
-                    ))
-                    matches = sum(1 for term in all_terms if term in cand_words)
-                    overlap = matches / len(all_terms) if all_terms else 0.0
-                    # Keep candidates with at least 2 matching words OR >= 25% overlap
-                    if matches >= 2 or overlap >= 0.25:
-                        slim = _slim_ticket(t)
-                        slim['match_score'] = round(overlap, 2)
-                        slim['match_terms'] = matches
-                        scored.append(slim)
-
-                scored.sort(key=lambda c: (-c['match_score'], c.get('updated_at', '') or ''))
-                candidates = scored
-
-            except Exception:
-                candidates = []
-
+            scored.sort(key=lambda c: (-c['match_score'], c.get('updated_at', '') or ''))
             results.append({
                 'new_ticket': _slim_ticket(ticket),
-                'candidates': candidates,
+                'candidates': scored[:5],
             })
 
         return results
