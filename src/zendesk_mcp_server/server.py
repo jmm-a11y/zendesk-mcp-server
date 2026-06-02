@@ -154,7 +154,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "(e.g. 'Event Scheduled'), not the base status field which is only the broad category. "
                 "Use include_comments=true whenever evaluating a ticket as a merge target — the thread "
                 "may document a root cause or scheduled change that reframes apparent duplicates as expected fallout. "
-                "Call get_custom_statuses once at the start of a triage session to build the id→label mapping."
+                "Call get_custom_statuses once at the start of a triage session to build the id-to-label mapping."
             ),
             inputSchema={
                 "type": "object",
