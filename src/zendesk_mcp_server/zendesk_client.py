@@ -33,24 +33,42 @@ class ZendeskClient:
         encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
         self.auth_header = f"Basic {encoded_credentials}"
 
-    def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
+    def get_ticket(self, ticket_id: int, include_comments: bool = False, comment_limit: int = 5) -> Dict[str, Any]:
         """
-        Query a ticket by its ID
+        Query a ticket by its ID. Optionally embed the most recent comments for triage context.
         """
         try:
             ticket = self.client.tickets(id=ticket_id)
-            return {
+            result = {
                 'id': ticket.id,
                 'subject': ticket.subject,
                 'description': ticket.description,
                 'status': ticket.status,
+                'custom_status_id': getattr(ticket, 'custom_status_id', None),
                 'priority': ticket.priority,
                 'created_at': str(ticket.created_at),
                 'updated_at': str(ticket.updated_at),
                 'requester_id': ticket.requester_id,
                 'assignee_id': ticket.assignee_id,
-                'organization_id': ticket.organization_id
+                'organization_id': ticket.organization_id,
             }
+            if include_comments:
+                all_comments = list(self.client.tickets.comments(ticket=ticket_id))
+                recent = all_comments[-min(comment_limit, len(all_comments)):]
+                lean = []
+                for c in recent:
+                    body = c.body or ''
+                    lean.append({
+                        'id': c.id,
+                        'author_id': c.author_id,
+                        'public': c.public,
+                        'created_at': str(c.created_at),
+                        'body': body[:500] + ('…' if len(body) > 500 else ''),
+                        'attachment_count': len(getattr(c, 'attachments', []) or []),
+                    })
+                result['recent_comments'] = lean
+                result['total_comments'] = len(all_comments)
+            return result
         except Exception as e:
             raise Exception(f"Failed to get ticket {ticket_id}: {str(e)}")
 
@@ -464,6 +482,7 @@ class ZendeskClient:
                     'id': item.get('id'),
                     'subject': item.get('subject'),
                     'status': item.get('status'),
+                    'custom_status_id': item.get('custom_status_id'),
                     'priority': item.get('priority'),
                     'description': item.get('description'),
                     'created_at': item.get('created_at'),

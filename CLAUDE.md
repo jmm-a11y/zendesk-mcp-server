@@ -21,7 +21,7 @@ src/zendesk_mcp_server/
 |------|---------|
 | `search_tickets` | Search via Zendesk Search API — use this for filtered queries (unassigned, by status, by requester, etc.) |
 | `get_tickets` | Paginated list of all tickets — use only when you need a broad dump |
-| `get_ticket` | Single ticket by ID |
+| `get_ticket` | Single ticket by ID — use `include_comments=true` when evaluating a merge target |
 | `lookup_user` | Resolve any email address to a Zendesk user ID — use before `create_ticket` |
 | `create_ticket` | Create a new ticket — always call `lookup_user` first to set `requester_id` |
 | `get_custom_statuses` | List all custom statuses with IDs — use to find the right `custom_status_id` |

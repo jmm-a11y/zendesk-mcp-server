@@ -148,13 +148,30 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="get_ticket",
-            description="Retrieve a Zendesk ticket by its ID",
+            description=(
+                "Retrieve a Zendesk ticket by its ID. "
+                "Response includes custom_status_id — this is the operative status for triage decisions "
+                "(e.g. 'Event Scheduled'), not the base status field which is only the broad category. "
+                "Use include_comments=true whenever evaluating a ticket as a merge target — the thread "
+                "may document a root cause or scheduled change that reframes apparent duplicates as expected fallout. "
+                "Call get_custom_statuses once at the start of a triage session to build the id→label mapping."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "ticket_id": {
                         "type": "integer",
                         "description": "The ID of the ticket to retrieve"
+                    },
+                    "include_comments": {
+                        "type": "boolean",
+                        "description": "When true, embed the most recent comments in the response for triage context. Default false.",
+                        "default": False
+                    },
+                    "comment_limit": {
+                        "type": "integer",
+                        "description": "Number of recent comments to include (default 5, max 20). Comments are plain-text only — no html_body or attachment content.",
+                        "default": 5
                     }
                 },
                 "required": ["ticket_id"]
@@ -333,11 +350,24 @@ async def handle_list_tools() -> list[types.Tool]:
                 "Search Zendesk tickets using Zendesk search syntax. "
                 "Use this instead of get_tickets whenever you need filtered results — "
                 "it queries server-side so nothing is missed regardless of volume. "
-                "Common patterns: 'type:ticket assignee:none status:open' for unassigned open tickets; "
+                "Common patterns: 'type:ticket assignee:none status:new' for unassigned new tickets; "
                 "'type:ticket status:open' for all open tickets; "
                 "'type:ticket requester:user@example.com' by requester; "
-                "'type:ticket created>2024-01-01' by date. "
-                "Supports pagination via page/per_page if count exceeds per_page."
+                "'type:ticket updated>2024-01-01' by recent activity. "
+                "Supports pagination via page/per_page if count exceeds per_page. "
+                "Results include custom_status_id alongside the base status field. "
+                "TRIAGE RULES — apply these for recurring-alert and merge workflows: "
+                "(1) Use updated> not created> when the user says 'yesterday', 'this week', or 'recent' — "
+                "those almost always mean last activity, not ticket creation date. "
+                "(2) For recurring device/network alerts, the active working ticket is frequently older and "
+                "in open, pending, or a custom status — never limit the search to status:new before first "
+                "checking whether a standing ticket already exists across all statuses. "
+                "(3) Before merging into any target ticket, call get_ticket with include_comments=true — "
+                "the thread may document a root cause or scheduled change that reframes apparent duplicates "
+                "as expected fallout. "
+                "(4) custom_status_id carries the operative context (e.g. 'Event Scheduled'), not the base "
+                "status field which is only the broad category (e.g. 'pending'). Call get_custom_statuses "
+                "once per triage session to build the id-to-label mapping before drawing conclusions."
             ),
             inputSchema={
                 "type": "object",
@@ -428,7 +458,11 @@ async def handle_call_tool(
         if name == "get_ticket":
             if not arguments:
                 raise ValueError("Missing arguments")
-            ticket = zendesk_client.get_ticket(arguments["ticket_id"])
+            ticket = zendesk_client.get_ticket(
+                arguments["ticket_id"],
+                include_comments=arguments.get("include_comments", False),
+                comment_limit=min(arguments.get("comment_limit", 5), 20),
+            )
             return [types.TextContent(
                 type="text",
                 text=json.dumps(ticket)
