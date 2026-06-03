@@ -276,7 +276,10 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="update_ticket",
-            description="Update ticket fields. When setting custom_status_id, also pass the base status field — use get_custom_statuses to find the right ID.",
+            description=(
+                "Update ticket fields. When setting custom_status_id, also pass the base status field — use get_custom_statuses to find the right ID. "
+                "collaborator_ids and email_cc_ids are full-replace: to add someone, call get_ticket first to get the current list, append the new user ID, then pass the complete list here."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -291,6 +294,8 @@ async def handle_list_tools() -> list[types.Tool]:
                     "custom_fields": {"type": "array", "items": {"type": "object"}},
                     "due_at": {"type": "string", "description": "ISO8601 datetime"},
                     "custom_status_id": {"type": "integer", "description": "Custom status ID — use get_custom_statuses to find the right ID. Pass alongside the base status field (e.g. status=pending) to be explicit about the status category."},
+                    "collaborator_ids": {"type": "array", "items": {"type": "integer"}, "description": "Full list of agent CC user IDs (replaces existing list — include all IDs you want to keep)."},
+                    "email_cc_ids": {"type": "array", "items": {"type": "integer"}, "description": "Full list of email CC user IDs (replaces existing list — include all IDs you want to keep)."},
                 },
                 "required": ["ticket_id"]
             }

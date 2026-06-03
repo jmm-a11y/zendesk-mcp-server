@@ -48,12 +48,32 @@ class ZendeskClient:
         encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
         self.auth_header = f"Basic {encoded_credentials}"
 
+    def _resolve_user_ids(self, ids: List[int]) -> List[Dict[str, Any]]:
+        """Bulk-resolve a list of user IDs to {id, name, email} via show_many."""
+        if not ids:
+            return []
+        ids_param = ','.join(str(i) for i in ids)
+        url = f"{self.base_url}/users/show_many.json?ids={ids_param}"
+        req = urllib.request.Request(url)
+        req.add_header('Authorization', self.auth_header)
+        req.add_header('Content-Type', 'application/json')
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+        return [
+            {'id': u.get('id'), 'name': u.get('name'), 'email': u.get('email')}
+            for u in data.get('users', [])
+        ]
+
     def get_ticket(self, ticket_id: int, include_comments: bool = False, comment_limit: int = 5) -> Dict[str, Any]:
         """
         Query a ticket by its ID. Optionally embed the most recent comments for triage context.
         """
         try:
             ticket = self.client.tickets(id=ticket_id)
+            collaborator_ids = list(getattr(ticket, 'collaborator_ids', []) or [])
+            email_cc_ids = list(getattr(ticket, 'email_cc_ids', []) or [])
+            all_cc_ids = list({*collaborator_ids, *email_cc_ids})
+            resolved = {u['id']: u for u in self._resolve_user_ids(all_cc_ids)} if all_cc_ids else {}
             result = {
                 'id': ticket.id,
                 'subject': ticket.subject,
@@ -66,6 +86,8 @@ class ZendeskClient:
                 'requester_id': ticket.requester_id,
                 'assignee_id': ticket.assignee_id,
                 'organization_id': ticket.organization_id,
+                'collaborators': [resolved[i] for i in collaborator_ids if i in resolved],
+                'email_ccs': [resolved[i] for i in email_cc_ids if i in resolved],
             }
             if include_comments:
                 all_comments = list(self.client.tickets.comments(ticket=ticket_id))
@@ -720,7 +742,7 @@ class ZendeskClient:
         Update a Zendesk ticket. Uses direct REST when custom_status_id is present
         (zenpy may not serialize that field); otherwise uses zenpy.
         """
-        if 'custom_status_id' in fields:
+        if any(k in fields for k in ('custom_status_id', 'collaborator_ids', 'email_cc_ids')):
             return self._update_ticket_rest(ticket_id, **fields)
 
         try:
@@ -784,6 +806,8 @@ class ZendeskClient:
                 'organization_id': t.get('organization_id'),
                 'tags': list(t.get('tags', []) or []),
                 'custom_status_id': t.get('custom_status_id'),
+                'collaborator_ids': t.get('collaborator_ids', []),
+                'email_cc_ids': t.get('email_cc_ids', []),
             }
         except _requests.HTTPError as e:
             error_body = e.response.text if e.response is not None else "No response body"

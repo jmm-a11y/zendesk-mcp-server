@@ -21,13 +21,13 @@ src/zendesk_mcp_server/
 |------|---------|
 | `search_tickets` | Search via Zendesk Search API — results include `organization_id`; use this for filtered queries (unassigned, by status, by requester, etc.) |
 | `get_tickets` | Paginated list of all tickets — use only when you need a broad dump |
-| `get_ticket` | Single ticket by ID — use `include_comments=true` when evaluating a merge target |
+| `get_ticket` | Single ticket by ID — returns `collaborators` and `email_ccs` (resolved to name/email); use `include_comments=true` when evaluating a merge target |
 | `lookup_user` | Resolve any email address to a Zendesk user ID — use before `create_ticket` |
 | `create_ticket` | Create a new ticket — always call `lookup_user` first to set `requester_id` |
 | `get_custom_statuses` | List all custom statuses with IDs — use to find the right `custom_status_id` |
 | `list_organizations` | Return all orgs with `id`, `name`, `domain_names` — call once to build an id→name map for resolving `organization_id` from search results |
 | `find_merge_candidates` | Find standing monitoring tickets for new unassigned alerts — returns each new ticket paired with candidates |
-| `update_ticket` | Update ticket fields — supports `custom_status_id`; always pass base `status` too |
+| `update_ticket` | Update ticket fields — supports `custom_status_id`, `collaborator_ids`, `email_cc_ids`; CC fields are full-replace (read current list first, then write complete list) |
 | `upload_file` | Upload a local file and return an attachment token for use with `create_ticket_comment` |
 | `get_ticket_comments` | All comments on a ticket, including attachment metadata |
 | `create_ticket_comment` | Post a public or internal comment — use HTML, not markdown |
