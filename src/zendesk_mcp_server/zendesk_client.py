@@ -499,6 +499,7 @@ class ZendeskClient:
                     'updated_at': item.get('updated_at'),
                     'requester_id': item.get('requester_id'),
                     'assignee_id': item.get('assignee_id'),
+                    'organization_id': item.get('organization_id'),
                 })
 
             return {
@@ -514,6 +515,33 @@ class ZendeskClient:
             raise Exception(f"Failed to search tickets: HTTP {e.code} - {e.reason}. {error_body}")
         except Exception as e:
             raise Exception(f"Failed to search tickets: {str(e)}")
+
+    def list_organizations(self) -> List[Dict[str, Any]]:
+        try:
+            orgs = []
+            page = 1
+            while True:
+                url = f"{self.base_url}/organizations.json?page={page}&per_page=100"
+                req = urllib.request.Request(url)
+                req.add_header('Authorization', self.auth_header)
+                req.add_header('Content-Type', 'application/json')
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode())
+                for org in data.get('organizations', []):
+                    orgs.append({
+                        'id': org.get('id'),
+                        'name': org.get('name'),
+                        'domain_names': org.get('domain_names', []),
+                    })
+                if not data.get('next_page'):
+                    break
+                page += 1
+            return orgs
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to list organizations: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to list organizations: {str(e)}")
 
     def get_custom_statuses(self) -> List[Dict[str, Any]]:
         """

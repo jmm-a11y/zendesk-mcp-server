@@ -371,6 +371,14 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="list_organizations",
+            description=(
+                "Return all Zendesk organizations with their id, name, and domain_names. "
+                "Call once to build an id→name map for resolving organization_id values from search_tickets results."
+            ),
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        types.Tool(
             name="find_tech",
             description="Look up a Techsourcing staff member by name, alias, or email. Returns zendesk_user_id for use as assignee_id.",
             inputSchema={
@@ -603,6 +611,13 @@ async def handle_call_tool(
                 page=arguments.get("page", 1),
                 per_page=arguments.get("per_page", 100),
             )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(results, indent=2)
+            )]
+
+        elif name == "list_organizations":
+            results = zendesk_client.list_organizations()
             return [types.TextContent(
                 type="text",
                 text=json.dumps(results, indent=2)
