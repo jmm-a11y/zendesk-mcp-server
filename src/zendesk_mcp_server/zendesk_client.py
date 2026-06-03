@@ -14,6 +14,21 @@ from zenpy.lib.api_objects import Comment
 from zenpy.lib.api_objects import Ticket as ZenpyTicket
 
 
+def _sniff_content_type(data: bytes) -> str | None:
+    """Detect MIME type from magic bytes; returns None if unrecognised."""
+    if data[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:4] == b'%PDF':
+        return 'application/pdf'
+    if data[:4] == b'PK\x03\x04':
+        return 'application/zip'
+    return None
+
+
 def _slim_ticket(t: dict) -> dict:
     """Return only the fields needed for merge triage."""
     return {
@@ -711,9 +726,7 @@ class ZendeskClient:
             content = source.read_bytes()
         else:
             raise ValueError("Either local_path or file_bytes must be provided")
-        content_type, _ = mimetypes.guess_type(filename)
-        if not content_type:
-            content_type = 'application/octet-stream'
+        content_type = _sniff_content_type(content) or mimetypes.guess_type(filename)[0] or 'application/octet-stream'
 
         params = urllib.parse.urlencode({'filename': filename})
         url = f"{self.base_url}/uploads.json?{params}"
