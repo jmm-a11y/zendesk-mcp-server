@@ -28,7 +28,7 @@ src/zendesk_mcp_server/
 | `list_organizations` | Return all orgs with `id`, `name`, `domain_names` — call once to build an id→name map for resolving `organization_id` from search results |
 | `find_merge_candidates` | Find standing monitoring tickets for new unassigned alerts — returns each new ticket paired with candidates |
 | `update_ticket` | Update ticket fields — supports `custom_status_id`, `collaborator_ids`, `email_cc_ids`; CC fields are full-replace (read current list first, then write complete list) |
-| `upload_file` | Upload a local file and return an attachment token for use with `create_ticket_comment` |
+| `upload_file` | Upload a file and return an attachment token — accepts `local_path` (disk) or `file_bytes` + `filename` (base64, for chat-uploaded images) |
 | `get_ticket_comments` | All comments on a ticket, including attachment metadata |
 | `create_ticket_comment` | Post a public or internal comment — use HTML, not markdown |
 | `get_ticket_attachment` | Fetch an image attachment as base64 |
@@ -55,13 +55,19 @@ To set a custom status on a ticket:
 
 ## Attaching files to comments
 
-To attach a file (e.g. a Word doc built in Claude) to a ticket comment:
+`upload_file` supports two modes:
 
-1. Call Foundation's `list_downloads` to confirm the exact local path of the file
-2. Call `upload_file` with that path — returns a `token` and `expires_at`
-3. Immediately call `create_ticket_comment` with the `uploads` array set to `[token]`
+**Local file (e.g. a Word doc built in Claude):**
+1. Call Foundation's `list_downloads` to confirm the exact local path
+2. Call `upload_file(local_path=...)` — returns a `token` and `expires_at`
+3. Immediately call `create_ticket_comment` with `uploads: [token]`
 
-Tokens expire after 60 minutes — do not upload and then wait. Content-Type is inferred from the file extension automatically.
+**Chat-uploaded image or sandbox file:**
+1. Encode the file content as standard base64 (no data-URI prefix)
+2. Call `upload_file(file_bytes=..., filename="screenshot.png")` — returns a `token`
+3. Immediately call `create_ticket_comment` with `uploads: [token]`
+
+Tokens expire after 60 minutes — upload and comment in the same turn. Content-Type is inferred from the filename extension automatically.
 
 ## Creating tickets — requester workflow
 

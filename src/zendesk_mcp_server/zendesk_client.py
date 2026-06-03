@@ -691,21 +691,26 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to look up user {email}: {str(e)}")
 
-    def upload_file(self, local_path: str, filename: str | None = None) -> Dict[str, Any]:
+    def upload_file(self, local_path: str | None = None, filename: str | None = None, file_bytes: str | None = None) -> Dict[str, Any]:
         """
-        Upload a local file to Zendesk and return the attachment token.
-        The token can be passed in the uploads array when posting a comment.
+        Upload a file to Zendesk and return the attachment token.
+        Provide either local_path (disk file) or file_bytes (standard base64) + filename.
         """
-        source = Path(local_path).expanduser()
-        if not source.exists():
-            raise FileNotFoundError(f"File not found: {local_path!r}")
-        if not source.is_file():
-            raise ValueError(f"Path is not a file: {local_path!r}")
-
-        if filename is None:
-            filename = source.name
-
-        content = source.read_bytes()
+        if file_bytes is not None:
+            if not filename:
+                raise ValueError("filename is required when using file_bytes")
+            content = base64.b64decode(file_bytes)
+        elif local_path:
+            source = Path(local_path).expanduser()
+            if not source.exists():
+                raise FileNotFoundError(f"File not found: {local_path!r}")
+            if not source.is_file():
+                raise ValueError(f"Path is not a file: {local_path!r}")
+            if filename is None:
+                filename = source.name
+            content = source.read_bytes()
+        else:
+            raise ValueError("Either local_path or file_bytes must be provided")
         content_type, _ = mimetypes.guess_type(filename)
         if not content_type:
             content_type = 'application/octet-stream'

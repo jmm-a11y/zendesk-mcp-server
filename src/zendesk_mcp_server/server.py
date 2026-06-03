@@ -437,20 +437,28 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="upload_file",
-            description="Upload a local file and return an attachment token. Pass token in create_ticket_comment uploads array. Tokens expire in 60 min — upload and comment immediately. Use Foundation's list_downloads to confirm the path.",
+            description=(
+                "Upload a file and return an attachment token. Pass token in create_ticket_comment uploads array. Tokens expire in 60 min — upload and comment immediately. "
+                "Two modes: (1) local_path — use Foundation's list_downloads to confirm path; "
+                "(2) file_bytes + filename — pass standard base64-encoded bytes (no data-URI prefix) for chat-uploaded images or files that exist only in the Claude sandbox."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "local_path": {
                         "type": "string",
-                        "description": "Absolute path to the file on disk (e.g. C:/Users/JohnMMoore/Downloads/report.docx). Supports ~ expansion."
+                        "description": "Absolute path to the file on disk. Use when the file is in Downloads or another known local path."
+                    },
+                    "file_bytes": {
+                        "type": "string",
+                        "description": "Standard base64-encoded file content (no data-URI prefix). Use for chat-uploaded images or files accessible only in the Claude sandbox. Requires filename."
                     },
                     "filename": {
                         "type": "string",
-                        "description": "Optional display name for the attachment in Zendesk. Defaults to the file's basename."
+                        "description": "Display name for the attachment (e.g. screenshot.png). Required when using file_bytes; optional with local_path (defaults to basename)."
                     }
                 },
-                "required": ["local_path"]
+                "required": []
             }
         )
     ]
@@ -670,12 +678,10 @@ async def handle_call_tool(
         elif name == "upload_file":
             if not arguments:
                 raise ValueError("Missing arguments")
-            local_path = arguments.get("local_path", "").strip()
-            if not local_path:
-                raise ValueError("local_path must not be empty")
             result = zendesk_client.upload_file(
-                local_path=local_path,
-                filename=arguments.get("filename"),
+                local_path=arguments.get("local_path") or None,
+                file_bytes=arguments.get("file_bytes") or None,
+                filename=arguments.get("filename") or None,
             )
             return [types.TextContent(
                 type="text",
